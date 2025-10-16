@@ -1,15 +1,17 @@
 package com.onemed1a.backend.repository.spec;
 
-import com.onemed1a.backend.model.MediaData;
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.data.jpa.domain.Specification;
+
 import com.onemed1a.backend.dto.SearchRequest;
+import com.onemed1a.backend.model.MediaData;
 import com.onemed1a.backend.model.UserMediaStatus;
+
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
-import org.springframework.data.jpa.domain.Specification;
-
-import java.util.ArrayList;
-import java.util.List;
 
 public final class MediaSearchSpecification {
     private MediaSearchSpecification() {}
@@ -64,7 +66,10 @@ public final class MediaSearchSpecification {
 
     public static Specification<MediaData> suggestByPrefix(String q) {
         final String prefix = (q == null ? "" : q.trim()).toLowerCase();
-        return (root, query, cb) ->
-                cb.like(cb.lower(root.get("title")), prefix + "%");
+    return (root, query, cb) -> {
+        // make results distinct to avoid duplicates when joining collections
+        query.distinct(true);
+        return cb.like(cb.lower(root.get("title")), prefix + "%");
+    };
     }
 }
