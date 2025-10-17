@@ -6,8 +6,9 @@ import { redirect } from "next/navigation";
  * If the user is not authenticated (no userId cookie), they are redirected to the login page.
  * If authenticated, they are redirected to the movie page.
  */
-export default function HomePage() {
-  const userId = cookies().get("userId")?.value;
+export default async function HomePage() {
+  const cookieStore = await cookies();
+  const userId = cookieStore.get("userId")?.value;
   if (!userId) {
     redirect("/login");
   }
