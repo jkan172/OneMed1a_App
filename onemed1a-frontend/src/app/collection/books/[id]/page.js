@@ -157,7 +157,13 @@ export default async function BookPage({ params }) {
 
         <Divider />
 
-        <StarRating value={5} />
+        <StarRating
+          userId={userId}
+          mediaId={book.mediaId}
+          value={result && result.rating ? result.rating : 0}
+          updatedAt={result && result.updatedAt}
+          statusId={result && result.id}
+        />
 
         <Divider />
 

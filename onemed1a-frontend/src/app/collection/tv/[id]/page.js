@@ -135,7 +135,13 @@ export default async function TvShowPage({ params }) {
 
         <Divider />
 
-        <StarRating value={4} />
+        <StarRating
+          userId={userId}
+          mediaId={show.mediaId}
+          value={result && result.rating ? result.rating : 0}
+          updatedAt={result && result.updatedAt}
+          statusId={result && result.id}
+        />
 
         <Divider />
 

@@ -148,7 +148,13 @@ export default async function MoviePage({ params }) {
 
         <Divider />
 
-        <StarRating value={5} />
+        <StarRating
+          userId={userId}
+          mediaId={movie.mediaId}
+          value={result && result.rating ? result.rating : 0}
+          updatedAt={result && result.updatedAt}
+          statusId={result && result.id}
+        />
 
         <Divider />
 

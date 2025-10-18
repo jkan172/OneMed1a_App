@@ -154,7 +154,13 @@ export default async function MusicPage({ params }) {
 
         <Divider />
 
-        <StarRating value={4} />
+        <StarRating
+          userId={userId}
+          mediaId={album.mediaId}
+          value={result && result.rating ? result.rating : 0}
+          updatedAt={result && result.updatedAt}
+          statusId={result && result.id}
+        />
 
         <Divider />
 
