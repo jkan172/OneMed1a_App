@@ -54,6 +54,7 @@ export default async function MediaPage({ params }) {
   const userId = cookieStore.get("userId")?.value;
   if (!userId) redirect("/");
 
+  // Load user's tracked statuses
   let raw = [];
   try {
     raw = (await getUserMediaByUserId(userId)) ?? [];
@@ -61,22 +62,9 @@ export default async function MediaPage({ params }) {
     console.error("Failed to load user media:", e);
   }
 
-  let items = raw
-    .filter((ums) => ums?.media?.type === wantedType)
-    .map((ums) => {
-      const m = ums.media ?? {};
-      return {
-        id: m.mediaId ?? ums.id,
-        title: m.title ?? "",
-        coverUrl: pickCover(m.posterUrl, m.backdropUrl),
-        year: toYear(m.releaseDate),
-        type: (m.type || "").toLowerCase(),
-        status: ums.status,
-        href: `/collection/${(m.type || "").toLowerCase()}/${m.mediaId ?? ums.id}`,
-      };
-    });
-
-  if (items.length === 0 && ["movie", "tv", "music", "books"].includes(mediaTypeKey)) {
+  // Always fetch external discover list for this media type so we can show unrated items
+  let external = [];
+  if (["movie", "tv", "music", "books"].includes(mediaTypeKey)) {
     try {
       const base = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8080";
       const url =
@@ -91,23 +79,117 @@ export default async function MediaPage({ params }) {
       const res = await fetch(url, { cache: "no-store" });
       if (res.ok) {
         const data = await res.json();
-        items = Array.isArray(data)
-          ? data.map((m) => ({
-              id: m.mediaId || m.externalMediaId || m.id,
-              title: m.title ?? "Untitled",
-              type: (m.type || "").toLowerCase(),
-              year: (m.releaseDate || "").slice(0, 4) || undefined,
-              rating: m.rating || undefined,
-              coverUrl: pickCover(m.posterUrl, m.backdropUrl),
-              href: `/collection/${(m.type || "").toLowerCase()}/${m.mediaId || m.externalMediaId || m.id}`,
-            }))
-          : [];
+        external = Array.isArray(data) ? data : [];
       } else {
         console.error("Discover fetch failed:", res.status, await res.text());
       }
     } catch (e) {
       console.error("Discover fetch error:", e);
     }
+  }
+
+  // Build external items and alias maps to canonicalize ids (mediaId and externalMediaId)
+  const externalMap = new Map();
+  const aliasMap = new Map();
+  const externalItems = external.map((m) => {
+    const idKey = m.mediaId || m.externalMediaId || m.id;
+    const canonical = String(idKey);
+    const item = {
+      id: canonical,
+      title: m.title ?? "Untitled",
+      type: (m.type || "").toLowerCase(),
+      year: (m.releaseDate || "").slice(0, 4) || undefined,
+      rating: m.rating || undefined,
+      coverUrl: pickCover(m.posterUrl, m.backdropUrl),
+      href: `/collection/${(m.type || "").toLowerCase()}/${canonical}`,
+      _raw: m,
+    };
+    externalMap.set(canonical, item);
+    if (m.externalMediaId) aliasMap.set(String(m.externalMediaId), canonical);
+    if (m.mediaId) aliasMap.set(String(m.mediaId), canonical);
+    return item;
+  });
+
+  // Overlay tracked statuses onto external items, matching by mediaId or externalMediaId.
+  const itemsMap = new Map();
+  for (const it of externalItems) itemsMap.set(String(it.id), { ...it });
+
+  const byWantedType = raw.filter((ums) => ums?.media?.type === wantedType);
+  for (const ums of byWantedType) {
+    const m = ums.media ?? {};
+    const umsInternal = m.mediaId ? String(m.mediaId) : null;
+    const umsExternal = m.externalMediaId ? String(m.externalMediaId) : null;
+
+    // resolve canonical id
+    let canonical = null;
+    if (umsInternal && itemsMap.has(umsInternal)) canonical = umsInternal;
+    else if (umsExternal && aliasMap.has(umsExternal)) canonical = aliasMap.get(umsExternal);
+    else if (umsExternal && itemsMap.has(umsExternal)) canonical = umsExternal;
+    else if (umsInternal && aliasMap.has(umsInternal)) canonical = aliasMap.get(umsInternal);
+
+    if (canonical) {
+      const base = itemsMap.get(canonical) || externalMap.get(canonical) || {};
+      itemsMap.set(canonical, {
+        ...base,
+        status: ums.status,
+        rating: ums.rating ?? base.rating,
+        href: `/collection/${(m.type || "").toLowerCase()}/${m.mediaId ?? ums.id}`,
+      });
+      if (umsExternal) aliasMap.set(umsExternal, canonical);
+      if (umsInternal) aliasMap.set(umsInternal, canonical);
+    } else {
+      // Try a best-effort title+year match as a last resort to avoid duplicates
+      const titleKey = (m.title || "").trim().toLowerCase();
+      const yearKey = toYear(m.releaseDate) || (m.releaseDate ? String(m.releaseDate).slice(0,4) : undefined);
+      let fallbackCanonical = null;
+      if (titleKey) {
+        for (const [extId, extItem] of externalMap.entries()) {
+          const extTitle = (extItem.title || "").trim().toLowerCase();
+          const extYear = extItem.year || undefined;
+          if (extTitle && extTitle === titleKey && (yearKey == null || extYear == null || String(extYear) === String(yearKey))) {
+            fallbackCanonical = extId;
+            break;
+          }
+        }
+      }
+      if (fallbackCanonical) {
+        const base = itemsMap.get(fallbackCanonical) || externalMap.get(fallbackCanonical) || {};
+        itemsMap.set(fallbackCanonical, {
+          ...base,
+          status: ums.status,
+          rating: ums.rating ?? base.rating,
+          href: `/collection/${(m.type || "").toLowerCase()}/${m.mediaId ?? ums.id}`,
+        });
+        if (umsExternal) aliasMap.set(umsExternal, fallbackCanonical);
+        if (umsInternal) aliasMap.set(umsInternal, fallbackCanonical);
+      } else {
+      // tracked-only item (not in external list)
+      const newKey = String(m.mediaId || m.externalMediaId || ums.id);
+      const newItem = {
+        id: newKey,
+        title: m.title ?? "",
+        coverUrl: pickCover(m.posterUrl, m.backdropUrl),
+        year: toYear(m.releaseDate),
+        type: (m.type || "").toLowerCase(),
+        status: ums.status,
+        rating: ums.rating,
+        href: `/collection/${(m.type || "").toLowerCase()}/${m.mediaId ?? ums.id}`,
+      };
+      itemsMap.set(newKey, newItem);
+      if (umsExternal) aliasMap.set(umsExternal, newKey);
+      if (umsInternal) aliasMap.set(umsInternal, newKey);
+      }
+    }
+  }
+
+  // Final items: external-ordering first, then tracked-only items appended
+  let items = [];
+  for (const it of externalItems) {
+    const merged = itemsMap.get(String(it.id));
+    if (merged) items.push(merged);
+  }
+  for (const [k, v] of itemsMap.entries()) {
+    if (!externalMap.has(k)) items.push(v);
   }
 
   return (
