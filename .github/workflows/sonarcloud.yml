@@ -1,0 +1,67 @@
+name: SonarCloud Scan
+
+on:
+  push:
+    branches: [ main, feat/*, fix/* ]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Cache Maven packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Build backend (Maven)
+        working-directory: onemed1a-backend
+        run: mvn -B -V -DskipTests=false verify
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        working-directory: onemed1a-frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: onemed1a-frontend
+        run: npm run build --if-present
+
+      - name: SonarCloud Scan
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >-
+            -Dsonar.projectKey=softeng-310-onemed1a-1_one-media
+            -Dsonar.organization=softeng-310-onemed1a-1
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+            -Dsonar.sources=onemed1a-backend/src/main/java,onemed1a-frontend/src
+            -Dsonar.tests=onemed1a-backend/src/test/java,onemed1a-frontend/src
+            -Dsonar.java.binaries=onemed1a-backend/target/classes
+            -Dsonar.javascript.lcov.reportPaths=onemed1a-frontend/coverage/lcov.info
+            -Dsonar.sourceEncoding=UTF-8
